@@ -124,9 +124,7 @@ void accept_request(int sockfd, int epfd) {
     char buf[BUFSIZ];
     int numbers = 0;
     numbers = get_line(sockfd, buf, sizeof(buf));
-    if () {
-        
-    }
+    
 
     return ;
 }
