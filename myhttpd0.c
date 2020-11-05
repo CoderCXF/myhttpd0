@@ -101,9 +101,25 @@ const char *get_file_type(const char *name)
  * @param {*}
  * @return {*}
  */
-void notfound(const char *filename)
+void notfound(int cfd)
 {
-
+    char buf[1024];
+    sprintf(buf, "HTTP/1.0 404 NOT FOUND\r\n");
+    send(cfd, buf, strlen(buf), 0);
+    // sprintf(buf, SERVER_STRING);
+    // send(cfd, buf, strlen(buf), 0);
+    sprintf(buf, "Content-Type: text/html\r\n");
+    send(cfd, buf, strlen(buf), 0);
+    sprintf(buf, "\r\n");
+    send(cfd, buf, strlen(buf), 0);
+    sprintf(buf, "<HTML><head><TITLE>Not Found</TITLE></head>\r\n");
+    send(cfd, buf, strlen(buf), 0);
+    sprintf(buf, "<BODY><h1 style=\"text-align:center\">404 not found</h1>\r\n");
+    send(cfd, buf, strlen(buf), 0);
+    sprintf(buf, "<p style=\"text-align: center\">myhttpd0</p>\r\n");
+    send(cfd, buf, strlen(buf), 0);
+    sprintf(buf, "</BODY></HTML>\r\n");
+    send(cfd, buf, strlen(buf), 0);
     return;
 }
 
@@ -147,6 +163,7 @@ void send_resource(int cfd, const char *fileName) {
     while ((n = read(fd, buf, sizeof(buf))) > 0) {
         send(cfd, buf, n, 0);
     }
+    close(fd);
     return ;
 }
 /**
@@ -159,7 +176,7 @@ void handle_GET(int cfd, const char *fileName)
     struct stat file_stat;
     int ret = 0;
     if ((ret = stat(fileName, &file_stat)) == -1) {
-        notfound(fileName); /*404 notfound*/
+        notfound(cfd); /*404 notfound*/
         perror("stat error:");
     }
     /*regular file*/
@@ -169,6 +186,11 @@ void handle_GET(int cfd, const char *fileName)
         /*reponse message : reponse head*/
         send_resource(cfd, fileName);
         /*reponse message : reponse body*/
+    }
+    /*S_ISDIR*/
+    if (S_ISDIR(file_stat.st_mode)) {
+        //TODO:
+
     }
     return;
 }
@@ -344,7 +366,9 @@ int main(int argc, char **argv)
         printf("./server port path\n");
         exit(-1);
     }
+    printf("server dir: %s\n", argv[2]);
     port = atoi(argv[1]);
+    //FIXME:
     ret = chdir(argv[2]);
     if (ret == -1)
     {
