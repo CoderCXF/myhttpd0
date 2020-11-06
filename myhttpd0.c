@@ -10,6 +10,9 @@
 #include <ctype.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/types.h>
+#include <dirent.h>
+
 
 #define default_port 9876
 #define OPENMAX 2048
@@ -128,9 +131,51 @@ void notfound(int cfd)
  * @param {*}
  * @return {*}
  */
-void unimplemented()
+void unimplemented(int cfd)
 {
+    char buf[1024];
+    sprintf(buf, "HTTP/1.0 500 Internal Server Error\r\n");
+    send(cfd, buf, strlen(buf), 0);
+    sprintf(buf, "Content-Type: text/html\r\n");
+    send(cfd, buf, strlen(buf), 0);
+    sprintf(buf, "\r\n");
+    send(cfd, buf, strlen(buf), 0);
+    send(cfd, buf, strlen(buf), 0);
+    sprintf(buf, "<HTML><HEAD><TITLE>Method Not Implemented\r\n");
+    send(cfd, buf, strlen(buf), 0);
+    sprintf(buf, "</TITLE></HEAD>\r\n");
+    send(cfd, buf, strlen(buf), 0);
+    sprintf(buf, "<BODY><P>HTTP request method not supported.\r\n");
+    send(cfd, buf, strlen(buf), 0);
+    sprintf(buf, "</BODY></HTML>\r\n");
+    send(cfd, buf, strlen(buf), 0);
+    return;
+}
 
+/**
+ * @description: 500 Internal Server Error  web
+ * @param {*}
+ * @return {*}
+ */
+void internal_server_error(int cfd)
+{
+    char buf[1024];
+    sprintf(buf, "HTTP/1.0 500 Internal Server Error\r\n");
+    send(cfd, buf, strlen(buf), 0);
+    // sprintf(buf, SERVER_STRING);
+    // send(cfd, buf, strlen(buf), 0);
+    sprintf(buf, "Content-Type: text/html\r\n");
+    send(cfd, buf, strlen(buf), 0);
+    sprintf(buf, "\r\n");
+    send(cfd, buf, strlen(buf), 0);
+    sprintf(buf, "<HTML><head><TITLE>500 Error</TITLE></head>\r\n");
+    send(cfd, buf, strlen(buf), 0);
+    sprintf(buf, "<BODY><h1 style=\"text-align:center\">500 Internal Server Error</h1>\r\n");
+    send(cfd, buf, strlen(buf), 0);
+    sprintf(buf, "<p style=\"text-align: center\">myhttpd0</p>\r\n");
+    send(cfd, buf, strlen(buf), 0);
+    sprintf(buf, "</BODY></HTML>\r\n");
+    send(cfd, buf, strlen(buf), 0);
     return;
 }
 /**
@@ -166,6 +211,24 @@ void send_resource(int cfd, const char *fileName) {
     close(fd);
     return ;
 }
+
+void send_dir_info(int cfd, const char *fileName) {
+    DIR *dp;
+    struct dirent *dirp;
+    if ((dp = opendir(fileName)) == NULL) {
+        perror("open directory error:");
+        internal_server_error(cfd);
+    }
+    //TODO:
+    while ((dirp = readdir(dp)) != NULL)
+	{
+		// printf("%s\n", dirp->d_name);
+
+	}
+
+    return ;
+}
+
 /**
  * @description: Handle GET request
  * @param {*}
@@ -175,6 +238,10 @@ void handle_GET(int cfd, const char *fileName)
 {
     struct stat file_stat;
     int ret = 0;
+    if (strcmp(fileName, "/")) {
+        fileName = "./";
+    }
+    /*judge this file wheher exist*/
     if ((ret = stat(fileName, &file_stat)) == -1) {
         notfound(cfd); /*404 notfound*/
         perror("stat error:");
@@ -185,12 +252,12 @@ void handle_GET(int cfd, const char *fileName)
         send_headers(cfd, fileName);
         /*reponse message : reponse head*/
         send_resource(cfd, fileName);
-        /*reponse message : reponse body*/
     }
     /*S_ISDIR*/
     if (S_ISDIR(file_stat.st_mode)) {
         //TODO:
-
+        send_headers(cfd, fileName);
+        send_dir_info(cfd, fileName);
     }
     return;
 }
