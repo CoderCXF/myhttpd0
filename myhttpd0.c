@@ -98,7 +98,51 @@ const char *get_file_type(const char *name)
 
     return "text/plain; charset=utf-8";
 }
+int hexit(char c) {
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    return 0;
+}
+/**
+ * @description: encode
+ * @param {*}
+ * @return {*}
+ */
+void encode_str(char *to, int tosize, const char *from) {
+    int tolen;
+    for (tolen = 0; *from != '\0' && tolen + 4 < tosize; ++from)
+    {
+        if (isalnum(*from) || strchr("/_.-~", *from) != (char *)0) {
+            *to = *from;
+            ++to;
+            ++tolen;
+        } else {
+            sprintf(to, "%%%02x", (int) *from & 0xff);
+            to += 3;
+            tolen += 3;
+        }
+    }
+    *to = '\0';
+}
 
+void decode_str(char *to, char *from) {
+    for( ; *from != '\0'; ++to, ++from) {
+        if (from[0] == '%' && isxdigit(from[1]) && isxdigit(from[2])) {
+            *to = hexit(from[1]) * 16 + hexit(from[2]);
+            from += 2;
+        } else {
+            *to = *from;
+        }
+    }
+    *to = '\0';
+}
 /**
  * @description: 404 notfound  web
  * @param {*}
@@ -183,11 +227,16 @@ void internal_server_error(int cfd)
  * @param {*}
  * @return {*}
  */
-void send_headers(int cfd, const char *fileName) {
-    /*juege file type by fileName*/
+void send_headers(int cfd, const char *fileName, int flag) {
     char buf[1024] = {0};
     const char *file_type;
-    file_type = get_file_type(fileName);
+    /*juege file type by fileName*/
+    if (flag) {
+        file_type = "text/html; charset=utf-8";
+    } else {
+        file_type = get_file_type(fileName);
+    }
+    printf("file_type: %s\n", file_type);
     strcpy(buf, "HTTP/1.1 200 OK\r\n");
     send(cfd, buf, strlen(buf), 0);
     sprintf(buf, "Content-Type: %s\r\n", file_type);
@@ -212,20 +261,48 @@ void send_resource(int cfd, const char *fileName) {
     return ;
 }
 
-void send_dir_info(int cfd, const char *fileName) {
-    DIR *dp;
-    struct dirent *dirp;
-    if ((dp = opendir(fileName)) == NULL) {
-        perror("open directory error:");
-        internal_server_error(cfd);
+void send_dir_info(int cfd, const char *dirName) {
+    int i = 0, num = 0;
+    int ret = -1;
+    char buf[1024] = {0}, path[1024] = {0};
+    char enstr[1024];
+    char *li_name;
+    strcpy(buf, "<!DOCTYPE html>");
+    send(cfd, buf, strlen(buf), 0);
+    sprintf(buf, "<html><head><title>Directory: %s </title></head>", dirName);
+    send(cfd, buf, strlen(buf), 0);
+    sprintf(buf, "<body><h1>Directory: %s</h1><ol>", dirName);
+    send(cfd, buf, strlen(buf), 0);
+
+    struct dirent **name_list;
+    num = scandir(dirName, &name_list, NULL, alphasort);
+    
+    for (i = 0; i < num; ++i) {
+        li_name = name_list[i]->d_name;
+        sprintf(path, "%s/%s", dirName, li_name);
+        struct stat st;
+        stat(path, &st);
+        encode_str(enstr, sizeof(enstr), li_name);
+        if (S_ISREG(st.st_mode)) {
+            sprintf(buf, "<li><a href=\"%s\">%s</a></li>", enstr, li_name);
+        } else if (S_ISDIR(st.st_mode)) {
+            sprintf(buf, "<li><a href=\"%s/\">%s/</a></li>", enstr, li_name);
+        }
+        ret = send(cfd, buf, strlen(buf), 0);
+        if (ret == -1) {
+        if (errno == EAGAIN || errno == EINTR) {
+            perror("send error");
+            continue;
+        } else {
+            perror("send error");
+            exit(-1);
+        }
     }
-    //TODO:
-    while ((dirp = readdir(dp)) != NULL)
-	{
-		// printf("%s\n", dirp->d_name);
-
-	}
-
+    }
+    memset(buf, 0, sizeof(buf));
+    sprintf(buf, "</ol></body></html>");
+    send(cfd, buf, strlen(buf), 0);
+    printf("send message OK !\n");
     return ;
 }
 
@@ -238,25 +315,23 @@ void handle_GET(int cfd, const char *fileName)
 {
     struct stat file_stat;
     int ret = 0;
-    if (strcmp(fileName, "/")) {
-        fileName = "./";
-    }
+    printf("file name:%s\n", fileName);
     /*judge this file wheher exist*/
     if ((ret = stat(fileName, &file_stat)) == -1) {
         notfound(cfd); /*404 notfound*/
         perror("stat error:");
     }
-    /*regular file*/
+    /*regular file or directory*/
     if (S_ISREG(file_stat.st_mode)) {
         /*reponse message : stat line*/
-        send_headers(cfd, fileName);
+        send_headers(cfd, fileName, 0);
         /*reponse message : reponse head*/
         send_resource(cfd, fileName);
     }
     /*S_ISDIR*/
     if (S_ISDIR(file_stat.st_mode)) {
         //TODO:
-        send_headers(cfd, fileName);
+        send_headers(cfd, fileName, 1);
         send_dir_info(cfd, fileName);
     }
     return;
@@ -343,7 +418,7 @@ void deal_accept(int lfd, int epfd)
 void parse_request(int cfd, int epfd)
 {
     char line[1024];
-    char method[16], fileName[256], protocol[16];
+    char method[16], path[256], protocol[16];
     struct stat file_stat;
     int numbers = 0, len = 0;
     numbers = get_line(cfd, line, sizeof(line));
@@ -352,9 +427,14 @@ void parse_request(int cfd, int epfd)
         epoll_ctl(epfd, EPOLL_CTL_DEL, cfd, NULL);
         close(cfd);
     } else {
-        sscanf(line, "%[^ ] %[^ ] %[^ ]", method, fileName, protocol);
+        sscanf(line, "%[^ ] %[^ ] %[^ ]", method, path, protocol);
         /*judge whether this file exist*/
-        printf("method:%s fileName:%s protocol:%s", method, fileName, protocol);
+        printf("method:%s fileName:%s protocol:%s", method, path, protocol);
+        decode_str(path, path);
+        char *file = path + 1;
+        if (strcmp(path, "/") == 0) {
+            file = "./";
+        }
         while (1)
         {
             char request_head[1024];
@@ -366,9 +446,9 @@ void parse_request(int cfd, int epfd)
             // printf("%s", request_head);
         }
         if (strcasecmp(method, "GET") == 0) {
-            handle_GET(cfd, fileName);
+            handle_GET(cfd, file);
         } else if (strcasecmp(method, "POST") == 0) {
-            handle_POST(fileName);
+            handle_POST(file);
         } else {
             unimplemented(cfd);
             return ;
