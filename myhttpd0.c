@@ -13,14 +13,13 @@
 #include <sys/types.h>
 #include <dirent.h>
 
-
-#define default_port 9876
+#define default_port 9999
 #define OPENMAX 2048
 
 /**
  * @description: getline http request message
- * @param: 
- * @return: bytes read
+ * @param: 1. sock fd;2. buffer
+ * @return: bytes
  */
 int get_line(int sock, char *buf, int size)
 {
@@ -53,15 +52,13 @@ int get_line(int sock, char *buf, int size)
 }
 
 /**
- * @description: 通过文件名获取文件的类型
- * @param {*}
- * @return {*}
+ * @description: obtain file type
+ * @param : file name
+ * @return : const char *
  */
 const char *get_file_type(const char *name)
 {
     char* dot;
-
-    // 自右向左查找‘.’字符, 如不存在返回NULL
     dot = strrchr(name, '.');   
     if (dot == NULL)
         return "text/plain; charset=utf-8";
@@ -95,7 +92,6 @@ const char *get_file_type(const char *name)
         return "application/ogg";
     if (strcmp(dot, ".pac") == 0)
         return "application/x-ns-proxy-autoconfig";
-
     return "text/plain; charset=utf-8";
 }
 int hexit(char c) {
@@ -111,7 +107,7 @@ int hexit(char c) {
     return 0;
 }
 /**
- * @description: encode
+ * @description: encode:chinese--->utf8
  * @param {*}
  * @return {*}
  */
@@ -132,6 +128,11 @@ void encode_str(char *to, int tosize, const char *from) {
     *to = '\0';
 }
 
+/**
+ * @description: decode:utf8--->chinese
+ * @param :
+ * @return : void
+ */
 void decode_str(char *to, char *from) {
     for( ; *from != '\0'; ++to, ++from) {
         if (from[0] == '%' && isxdigit(from[1]) && isxdigit(from[2])) {
@@ -145,16 +146,14 @@ void decode_str(char *to, char *from) {
 }
 /**
  * @description: 404 notfound  web
- * @param {*}
- * @return {*}
+ * @param : client fd
+ * @return : void
  */
 void notfound(int cfd)
 {
     char buf[1024];
     sprintf(buf, "HTTP/1.0 404 NOT FOUND\r\n");
     send(cfd, buf, strlen(buf), 0);
-    // sprintf(buf, SERVER_STRING);
-    // send(cfd, buf, strlen(buf), 0);
     sprintf(buf, "Content-Type: text/html\r\n");
     send(cfd, buf, strlen(buf), 0);
     sprintf(buf, "\r\n");
@@ -172,8 +171,8 @@ void notfound(int cfd)
 
 /**
  * @description: Only GET and POST request
- * @param {*}
- * @return {*}
+ * @param : client fd
+ * @return : void
  */
 void unimplemented(int cfd)
 {
@@ -198,16 +197,14 @@ void unimplemented(int cfd)
 
 /**
  * @description: 500 Internal Server Error  web
- * @param {*}
- * @return {*}
+ * @param: client fd
+ * @return : void
  */
 void internal_server_error(int cfd)
 {
     char buf[1024];
     sprintf(buf, "HTTP/1.0 500 Internal Server Error\r\n");
     send(cfd, buf, strlen(buf), 0);
-    // sprintf(buf, SERVER_STRING);
-    // send(cfd, buf, strlen(buf), 0);
     sprintf(buf, "Content-Type: text/html\r\n");
     send(cfd, buf, strlen(buf), 0);
     sprintf(buf, "\r\n");
@@ -224,8 +221,8 @@ void internal_server_error(int cfd)
 }
 /**
  * @description: send response headers
- * @param {*}
- * @return {*}
+ * @param: param 3 is flag whether this file is directory
+ * @return: void
  */
 void send_headers(int cfd, const char *fileName, int flag) {
     char buf[1024] = {0};
@@ -246,6 +243,11 @@ void send_headers(int cfd, const char *fileName, int flag) {
     return ;
 }
 
+/**
+ * @description: send file to browser
+ * @param : 1. client fd; 2. file name
+ * @return : void
+ */
 void send_resource(int cfd, const char *fileName) {
     int fd = 0;
     int n = 0;
@@ -261,6 +263,11 @@ void send_resource(int cfd, const char *fileName) {
     return ;
 }
 
+/**
+ * @description: send directory info to browser
+ * @param : 1.client fd; 2.directory name
+ * @return : void
+ */
 void send_dir_info(int cfd, const char *dirName) {
     int i = 0, num = 0;
     int ret = -1;
@@ -308,8 +315,8 @@ void send_dir_info(int cfd, const char *dirName) {
 
 /**
  * @description: Handle GET request
- * @param {*}
- * @return {*}
+ * @param : 1. client fd;2. file name
+ * @return : void
  */
 void handle_GET(int cfd, const char *fileName)
 {
@@ -330,24 +337,24 @@ void handle_GET(int cfd, const char *fileName)
     }
     /*S_ISDIR*/
     if (S_ISDIR(file_stat.st_mode)) {
-        //TODO:
+        //TODO: paramter 3
         send_headers(cfd, fileName, 1);
         send_dir_info(cfd, fileName);
     }
     return;
 }
-
 /**
  * @description: Handle POST request
- * @param {*}
- * @return {*}
+ * @param : 
+ * @return : void
  */
-void handle_POST(const char *fileName) {
+void handle_POST(int cfd, const char *fileName) {
 
     return ;
 }
+
 /**
- * @description: init sock/bind/listen
+ * @description: Init sock/bind/listen
  * @param {*}
  * @return {*}
  */
@@ -378,10 +385,15 @@ int initSocket(u_short port)
         perror("bind error");
         exit(-1);
     }
-    printf("Waiting for connect...\n");
+    printf("Waiting for connect on %d...\n", port);
     return listenfd;
 }
 
+/**
+ * @description: Epoll listen event
+ * @param {*}
+ * @return {*}
+ */
 void deal_accept(int lfd, int epfd)
 {
     int cfd = 0;
@@ -414,7 +426,11 @@ void deal_accept(int lfd, int epfd)
     return;
 }
 
-/*parsing http request data from browser*/
+/**
+ * @description: Parsing http request data from browser
+ * @param {*}
+ * @return {*}
+ */
 void parse_request(int cfd, int epfd)
 {
     char line[1024];
@@ -448,7 +464,7 @@ void parse_request(int cfd, int epfd)
         if (strcasecmp(method, "GET") == 0) {
             handle_GET(cfd, file);
         } else if (strcasecmp(method, "POST") == 0) {
-            handle_POST(file);
+            handle_POST(cfd,file);
         } else {
             unimplemented(cfd);
             return ;
@@ -457,7 +473,11 @@ void parse_request(int cfd, int epfd)
 
     return;
 }
-
+/**
+ * @description: Epoll wait client and judge event
+ * @param : listen fd
+ * @return : void
+ */
 void epoll_listen(int lfd)
 {
     int nready;
@@ -502,25 +522,34 @@ void epoll_listen(int lfd)
     close(epfd);
     return;
 }
-
 int main(int argc, char **argv)
 {
     int lfd;
     u_short port;
     int ret = 0;
-    if (argc < 3)
-    {
-        printf("./server port path\n");
-        exit(-1);
-    }
-    printf("server dir: %s\n", argv[2]);
-    port = atoi(argv[1]);
-    //FIXME:
-    ret = chdir(argv[2]);
-    if (ret == -1)
-    {
-        perror("chdir error");
-        exit(-1);
+    if (argc == 1) {
+        port = default_port;
+        ret = chdir("/");
+        if (ret == -1)
+        {
+            perror("chdir error");
+            exit(-1);
+        }
+    } else if (argc == 2) {
+        ret = chdir("/");
+        if (ret == -1)
+        {
+            perror("chdir error");
+            exit(-1);
+        }
+    } else {
+        port = atoi(argv[1]);
+        ret = chdir(argv[2]);
+        if (ret == -1)
+        {
+            perror("chdir error");
+            exit(-1);
+        }
     }
     lfd = initSocket(port);
     epoll_listen(lfd);
